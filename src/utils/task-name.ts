@@ -1,4 +1,4 @@
-import { ClickUpCustomField, ClickUpTask } from "../types/clickup.type";
+import { ClickUpTask } from "../types/clickup.type";
 
 function normalizeToken(value: string): string {
     return value
@@ -10,152 +10,71 @@ function normalizeToken(value: string): string {
         .toUpperCase();
 }
 
-function escapeRegex(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+function getTagNames(task: ClickUpTask): string[] {
+    const rawTags = task.tags ?? [];
 
-function getCustomFieldValue(
-    fields: ClickUpCustomField[] | undefined,
-    fieldName: string,
-): string | null {
-    if (!fields?.length) return null;
-
-    const field = fields.find(
-        (item) => item.name.toLowerCase() === fieldName.toLowerCase(),
-    );
-
-    if (!field || field.value == null) return null;
-
-    if (typeof field.value === "string") return field.value;
-    if (typeof field.value === "number" || typeof field.value === "boolean") {
-        return String(field.value);
-    }
-
-    return null;
+    return rawTags
+        .map((tag:any) => {
+            if (typeof tag === "string") {
+                return tag.trim();
+            }
+            if (tag && typeof tag === "object" && "name" in tag) {
+                return String(tag.name ?? "").trim();
+            }
+            return "";
+        })
+        .filter(Boolean)
+        .map(normalizeToken);
 }
 
 export function resolveProjectName(task: ClickUpTask): string {
-    const fromCustomField = getCustomFieldValue(task.custom_fields, "project_code");
-    if (fromCustomField) {
-        return normalizeToken(fromCustomField);
-    }
+    const taskName = task.name.toUpperCase();
 
-    const listName = task.list?.name ?? "";
-    const folderName = task.folder?.name ?? "";
-    const spaceName = task.space?.name ?? "";
-    const combined = `${spaceName} ${folderName} ${listName}`.toUpperCase();
+    if (taskName.includes("PORTAL")) return "PORTAL";
+    if (taskName.includes("DTP")) return "DTP";
+    if (taskName.includes("NSW")) return "NSW";
 
-    if (combined.includes("PORTAL")) return "PORTAL";
-    if (combined.includes("DTP")) return "DTP";
-    if (combined.includes("NSW")) return "NSW";
-
-    return "GENERAL";
+    return "PORTAL";
 }
 
-/**
- * กติกาใหม่:
- * - ไม่มี tag => null
- * - มีหลาย tag => null (ไม่เอา tag มาแสดง)
- * - มี 1 tag => ใช้ tag นั้น
- */
 export function resolveTagName(task: ClickUpTask): string | null {
-    const tags = (task.tags ?? [])
-        .map((tag) => tag.name?.trim())
-        .filter((name): name is string => Boolean(name));
+    const tags = getTagNames(task);
 
     if (tags.length !== 1) {
         return null;
     }
 
-    return normalizeToken(tags[0]);
+    return tags[0];
 }
 
-/**
- * ตัด prefix เดิมที่อาจเคยถูกระบบเติมไว้
- * รองรับทั้ง:
- * - PROJECT_NAME
- * - PROJECT_TAG_NAME
- *
- * เพื่อให้เวลาเติม tag ทีหลัง จะได้ re-build ใหม่สะอาด ๆ
- */
-function stripManagedPrefix(
-    taskName: string,
-    projectName: string,
-    knownTags: string[],
-): string {
-    const cleanName = taskName.trim();
-    if (!cleanName) return cleanName;
+function stripManagedPrefix(taskName: string, projectName: string, tagName: string | null): string {
+    const upper = taskName.trim().toUpperCase();
 
-    const escapedProject = escapeRegex(projectName);
-
-    // ตัดแบบ PROJECT_TAG_
-    for (const tag of knownTags) {
-        const escapedTag = escapeRegex(tag);
-        const regex = new RegExp(`^${escapedProject}_${escapedTag}_(.+)$`, "i");
-        const match = cleanName.match(regex);
-        if (match?.[1]) {
-            return match[1].trim();
+    if (tagName) {
+        const prefixWithTag = `${projectName}_${tagName}_`;
+        if (upper.startsWith(prefixWithTag)) {
+            return taskName.trim().slice(prefixWithTag.length);
         }
     }
 
-    // ตัดแบบ PROJECT_
-    const regexProjectOnly = new RegExp(`^${escapedProject}_(.+)$`, "i");
-    const matchProjectOnly = cleanName.match(regexProjectOnly);
-    if (matchProjectOnly?.[1]) {
-        return matchProjectOnly[1].trim();
+    const prefixProjectOnly = `${projectName}_`;
+    if (upper.startsWith(prefixProjectOnly)) {
+        return taskName.trim().slice(prefixProjectOnly.length);
     }
 
-    return cleanName;
-}
-
-/**
- * รวบรวม tag ทั้งหมดไว้ใช้ strip prefix เก่า
- * ถึงแม้หลาย tag จะไม่เอามาแสดง แต่ยังใช้ตรวจชื่อเก่าได้
- */
-function getAllNormalizedTags(task: ClickUpTask): string[] {
-    const unique = new Set<string>();
-
-    for (const tag of task.tags ?? []) {
-        const name = tag.name?.trim();
-        if (!name) continue;
-        unique.add(normalizeToken(name));
-    }
-
-    return [...unique];
-}
-
-/**
- * ถ้าชื่อปัจจุบันอยู่ในรูปแบบที่ถูกต้องแล้ว ให้ข้ามได้
- */
-function isAlreadyFormatted(
-    currentName: string,
-    expectedName: string,
-): boolean {
-    return currentName.trim().toUpperCase() === expectedName.trim().toUpperCase();
+    return taskName.trim();
 }
 
 export function buildTaskName(task: ClickUpTask): string {
     const projectName = resolveProjectName(task);
-    const tagName = resolveTagName(task); // null ถ้าไม่มีหรือมีหลาย tag
-    const allTags = getAllNormalizedTags(task);
+    const tagName = resolveTagName(task);
     const currentName = task.name.trim();
 
-    if (!currentName) {
-        return tagName ? `${projectName}_${tagName}` : projectName;
-    }
+    const baseName = stripManagedPrefix(currentName, projectName, tagName);
 
-    // ตัด prefix เดิมที่ระบบเคยใส่ไว้ก่อน
-    const baseName = stripManagedPrefix(currentName, projectName, allTags);
-
-    // ประกอบชื่อใหม่ตามกติกา
-    const expectedName = tagName
+    const newName = tagName
         ? `${projectName}_${tagName}_${baseName}`
         : `${projectName}_${baseName}`;
 
-    // ถ้าปัจจุบันถูกต้องอยู่แล้ว ไม่ต้องแก้
-    if (isAlreadyFormatted(currentName, expectedName)) {
-        return currentName;
-    }
-
-    return expectedName;
+    return newName.trim();
 }

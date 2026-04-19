@@ -1,5 +1,4 @@
 import axios from "axios";
-import { ClickUpTask } from "../types/clickup.type";
 
 const CLICKUP_TOKEN = process.env.CLICKUP_TOKEN;
 
@@ -15,11 +14,6 @@ const clickupApi = axios.create({
         "Content-Type": "application/json",
     },
 });
-
-export async function getTask(taskId: string): Promise<ClickUpTask> {
-    const response = await clickupApi.get<ClickUpTask>(`/task/${taskId}`);
-    return response.data;
-}
 
 export async function updateTaskName(taskId: string, newName: string): Promise<void> {
     await clickupApi.put(`/task/${taskId}`, {

@@ -1,87 +1,69 @@
 import { Router, Request, Response } from "express";
-import { getTask, updateTaskName } from "../services/clickup.service";
+import { updateTaskName } from "../services/clickup.service";
 import { buildTaskName } from "../utils/task-name";
-import { ClickUpWebhookPayload } from "../types/clickup.type";
+import { ClickUpAutomationPayload, ClickUpTask, ClickUpWebhookPayload } from "../types/clickup.type";
 
 const router = Router();
 
-function extractTaskId(payload: ClickUpWebhookPayload): string | null {
-    return (
-        payload.task_id ||
-        payload.task?.id ||
-        payload.history_items?.[0]?.task_id ||
-        null
-    );
+function extractTaskFromBody(
+    body: ClickUpWebhookPayload | ClickUpAutomationPayload,
+): ClickUpTask | null {
+    // กรณี Automation webhook จาก ClickUp UI
+    if ("payload" in body && body.payload?.id && body.payload?.name) {
+        return {
+            id: body.payload.id,
+            name: body.payload.name,
+            tags: body.payload.tags ?? [],
+        };
+    }
+
+    return null;
 }
 
-function shouldProcessEvent(event?: string): boolean {
-    return event === "taskCreated" || event === "taskUpdated";
-}
+router.post("/webhook", async (req: Request, res: Response) => {
+    try {
+        console.log("Incoming payload:", JSON.stringify(req.body, null, 2));
 
-router.get("/health", (_req: Request, res: Response) => {
-    res.status(200).json({ ok: true, route: "clickup" });
-});
+        const task = extractTaskFromBody(req.body);
 
-router.post(
-    "/webhook",
-    async (req: Request<unknown, unknown, ClickUpWebhookPayload>, res: Response) => {
-        try {
-            const payload = req.body;
-            const event = payload.event;
-            const taskId = extractTaskId(payload);
-
-            console.log("Incoming event:", event);
-            console.log("Incoming payload:", JSON.stringify(payload, null, 2));
-
-            if (!taskId) {
-                return res.status(200).json({
-                    ok: true,
-                    skipped: true,
-                    reason: "No task id found in payload",
-                });
-            }
-
-            if (!shouldProcessEvent(event)) {
-                return res.status(200).json({
-                    ok: true,
-                    skipped: true,
-                    reason: `Ignored event: ${event ?? "unknown"}`,
-                });
-            }
-
-            const task = await getTask(taskId);
-            const newName = buildTaskName(task);
-
-            if (newName === task.name) {
-                return res.status(200).json({
-                    ok: true,
-                    skipped: true,
-                    reason: "Task name already formatted",
-                    taskId,
-                    name: task.name,
-                });
-            }
-
-            await updateTaskName(taskId, newName);
-
+        if (!task) {
             return res.status(200).json({
                 ok: true,
-                taskId,
-                oldName: task.name,
-                newName,
-            });
-        } catch (error: unknown) {
-            const message =
-                error instanceof Error ? error.message : "Unknown error";
-
-            console.error("ClickUp webhook error:", message);
-
-            return res.status(500).json({
-                ok: false,
-                error: message,
+                skipped: true,
+                reason: "Unsupported payload format",
             });
         }
-    },
-);
+
+        const newName = buildTaskName(task);
+
+        if (newName.trim().toUpperCase() === task.name.trim().toUpperCase()) {
+            return res.status(200).json({
+                ok: true,
+                skipped: true,
+                reason: "Task name already formatted",
+                taskId: task.id,
+                name: task.name,
+            });
+        }
+
+        await updateTaskName(task.id, newName);
+
+        return res.status(200).json({
+            ok: true,
+            taskId: task.id,
+            oldName: task.name,
+            newName,
+        });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+
+        console.error("ClickUp webhook error:", message);
+
+        return res.status(500).json({
+            ok: false,
+            error: message,
+        });
+    }
+});
 
 export default router;
