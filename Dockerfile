@@ -16,13 +16,17 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-ENV NODE_ENV=production
+ARG PORT=8319
+ARG CLICKUP_TOKEN=token
+
+ENV PORT=$PORT
+ENV CLICKUP_TOKEN=$CLICKUP_TOKEN
 
 COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 
-EXPOSE 8319
+EXPOSE $PORT
 
 CMD ["node", "dist/index.js"]
