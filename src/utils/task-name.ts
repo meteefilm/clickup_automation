@@ -35,6 +35,13 @@ function getTagNames(task: ClickUpTask): any[] {
     return [...new Set(tags)];
 }
 
+/**
+ * ใช้ full task จาก API อย่างเดียว
+ * priority:
+ * 1. list.name
+ * 2. folder.name
+ * 3. space.name
+ */
 export function resolveProjectName(task: ClickUpTask): string {
     const listName = task.list?.name?.trim();
     const folderName = task.folder?.name?.trim();
@@ -68,7 +75,6 @@ export function resolveTagName(task: ClickUpTask): string | null {
  * รองรับ:
  * - PROJECT_NAME
  * - PROJECT_TAG_NAME
- * - PROJECT_TAG1_TAG2_NAME (กรณีชื่อเก่าค้าง)
  */
 function stripManagedPrefix(taskName: string, projectName: string, allTags: string[]): string {
     const currentName = taskName.trim();

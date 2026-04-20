@@ -40,15 +40,13 @@ router.post("/webhook", async (req: Request, res: Response) => {
         }
 
         const taskId = extractTaskId(req.body) || "";
-        console.log('taskId :', taskId);
 
         const fullTask = await getTask(taskId);
-        console.log('fullTask :', fullTask);
 
         console.log("Resolved task from API:", JSON.stringify(fullTask, null, 2));
 
 
-        const newName = buildTaskName(task);
+        const newName = buildTaskName(fullTask);
 
         if (newName.trim().toUpperCase() === task.name.trim().toUpperCase()) {
             return res.status(200).json({
