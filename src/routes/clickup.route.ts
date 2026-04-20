@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { updateTaskName } from "../services/clickup.service";
+import { getTask, updateTaskName } from "../services/clickup.service";
 import { buildTaskName } from "../utils/task-name";
 import { ClickUpAutomationPayload, ClickUpTask, ClickUpWebhookPayload } from "../types/clickup.type";
 
@@ -20,9 +20,14 @@ function extractTaskFromBody(
     return null;
 }
 
+function extractTaskId(body: ClickUpAutomationPayload): string | null {
+    return body.payload?.id ?? null;
+}
+
 router.post("/webhook", async (req: Request, res: Response) => {
     try {
         console.log("Incoming payload:", JSON.stringify(req.body, null, 2));
+
 
         const task = extractTaskFromBody(req.body);
 
@@ -33,6 +38,13 @@ router.post("/webhook", async (req: Request, res: Response) => {
                 reason: "Unsupported payload format",
             });
         }
+
+        const taskId = extractTaskId(req.body) || "";
+
+        const fullTask = await getTask(taskId);
+
+        console.log("Resolved task from API:", JSON.stringify(fullTask, null, 2));
+
 
         const newName = buildTaskName(task);
 

@@ -10,33 +10,49 @@ function normalizeToken(value: string): string {
         .toUpperCase();
 }
 
-function getTagNames(task: ClickUpTask): string[] {
+function escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getTagNames(task: ClickUpTask): any[] {
     const rawTags = task.tags ?? [];
 
-    return rawTags
-        .map((tag:any) => {
+    const tags = rawTags
+        .map((tag: any) => {
             if (typeof tag === "string") {
                 return tag.trim();
             }
+
             if (tag && typeof tag === "object" && "name" in tag) {
                 return String(tag.name ?? "").trim();
             }
+
             return "";
         })
         .filter(Boolean)
         .map(normalizeToken);
+
+    return [...new Set(tags)];
 }
 
 export function resolveProjectName(task: ClickUpTask): string {
-    const taskName = task.name.toUpperCase();
+    const listName = task.list?.name?.trim();
+    const folderName = task.folder?.name?.trim();
+    const spaceName = task.space?.name?.trim();
 
-    if (taskName.includes("PORTAL")) return "PORTAL";
-    if (taskName.includes("DTP")) return "DTP";
-    if (taskName.includes("NSW")) return "NSW";
+    if (listName) return normalizeToken(listName);
+    if (folderName) return normalizeToken(folderName);
+    if (spaceName) return normalizeToken(spaceName);
 
-    return taskName;
+    return "GENERAL";
 }
 
+/**
+ * กติกา:
+ * - ไม่มี tag => null
+ * - มี 1 tag => ใช้ tag นั้น
+ * - มีหลาย tag => null
+ */
 export function resolveTagName(task: ClickUpTask): string | null {
     const tags = getTagNames(task);
 
@@ -47,34 +63,64 @@ export function resolveTagName(task: ClickUpTask): string | null {
     return tags[0];
 }
 
-function stripManagedPrefix(taskName: string, projectName: string, tagName: string | null): string {
-    const upper = taskName.trim().toUpperCase();
+/**
+ * strip prefix ที่ระบบเคยตั้งไว้
+ * รองรับ:
+ * - PROJECT_NAME
+ * - PROJECT_TAG_NAME
+ * - PROJECT_TAG1_TAG2_NAME (กรณีชื่อเก่าค้าง)
+ */
+function stripManagedPrefix(taskName: string, projectName: string, allTags: string[]): string {
+    const currentName = taskName.trim();
+    if (!currentName) return currentName;
 
-    if (tagName) {
-        const prefixWithTag = `${projectName}_${tagName}_`;
-        if (upper.startsWith(prefixWithTag)) {
-            return taskName.trim().slice(prefixWithTag.length);
+    const escapedProject = escapeRegex(projectName);
+
+    // ตัด PROJECT_<TAG>_
+    for (const tag of allTags) {
+        const escapedTag = escapeRegex(tag);
+        const regex = new RegExp(`^${escapedProject}_${escapedTag}_(.+)$`, "i");
+        const match = currentName.match(regex);
+
+        if (match?.[1]) {
+            return match[1].trim();
         }
     }
 
-    const prefixProjectOnly = `${projectName}_`;
-    if (upper.startsWith(prefixProjectOnly)) {
-        return taskName.trim().slice(prefixProjectOnly.length);
+    // ตัด PROJECT_
+    const regexProjectOnly = new RegExp(`^${escapedProject}_(.+)$`, "i");
+    const matchProjectOnly = currentName.match(regexProjectOnly);
+
+    if (matchProjectOnly?.[1]) {
+        return matchProjectOnly[1].trim();
     }
 
-    return taskName.trim();
+    return currentName;
+}
+
+function isAlreadyFormatted(currentName: string, expectedName: string): boolean {
+    return currentName.trim().toUpperCase() === expectedName.trim().toUpperCase();
 }
 
 export function buildTaskName(task: ClickUpTask): string {
     const projectName = resolveProjectName(task);
     const tagName = resolveTagName(task);
+    const allTags = getTagNames(task);
     const currentName = task.name.trim();
 
-    const baseName = stripManagedPrefix(currentName, projectName, tagName);
+    if (!currentName) {
+        return tagName ? `${projectName}_${tagName}` : projectName;
+    }
 
-    const newName = tagName
+    const baseName = stripManagedPrefix(currentName, projectName, allTags);
+
+    const expectedName = tagName
         ? `${projectName}_${tagName}_${baseName}`
         : `${projectName}_${baseName}`;
 
-    return newName.trim();
+    if (isAlreadyFormatted(currentName, expectedName)) {
+        return currentName;
+    }
+
+    return expectedName.trim();
 }
