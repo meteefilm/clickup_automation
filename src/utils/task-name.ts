@@ -34,7 +34,7 @@ export function resolveProjectName(task: ClickUpTask): string {
     if (taskName.includes("DTP")) return "DTP";
     if (taskName.includes("NSW")) return "NSW";
 
-    return "PORTAL";
+    return taskName;
 }
 
 export function resolveTagName(task: ClickUpTask): string | null {
