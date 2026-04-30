@@ -26,3 +26,9 @@ export async function updateTaskName(taskId: string, newName: string): Promise<v
         name: newName,
     });
 }
+
+export async function updateTaskDueDate(taskId: string, dueDate: number): Promise<void> {
+    await clickupApi.put(`/task/${taskId}`, {
+        due_date: dueDate,
+    });
+}

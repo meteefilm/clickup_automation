@@ -6,6 +6,16 @@ export interface ClickUpTask {
     id: string;
     name: string;
     tags?: Array<ClickUpTag | string> | any;
+
+    priority?: {
+        id?: string;
+        priority?: string; // urgent, high, normal, low
+        color?: string;
+        orderindex?: string;
+    } | null;
+
+    due_date?: string | number | null;
+
     list?: {
         id?: string;
         name?: string;
@@ -57,3 +67,4 @@ export interface ClickUpWebhookPayload {
         task_id?: string;
     }>;
 }
+

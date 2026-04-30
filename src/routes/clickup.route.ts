@@ -1,7 +1,8 @@
 import { Router, Request, Response } from "express";
-import { getTask, updateTaskName } from "../services/clickup.service";
+import { getTask, updateTaskDueDate, updateTaskName } from "../services/clickup.service";
 import { buildTaskName } from "../utils/task-name";
 import { ClickUpAutomationPayload, ClickUpTask, ClickUpWebhookPayload } from "../types/clickup.type";
+import { calculateDueDateByPriority, shouldUpdateDueDate } from "../utils/task-due-date";
 
 const router = Router();
 
@@ -48,24 +49,38 @@ router.post("/webhook", async (req: Request, res: Response) => {
 
         const newName = buildTaskName(fullTask);
 
-        if (newName.trim().toUpperCase() === task.name.trim().toUpperCase()) {
-            return res.status(200).json({
-                ok: true,
-                skipped: true,
-                reason: "Task name already formatted",
-                taskId: task.id,
-                name: task.name,
-            });
+        const result: any = {
+            ok: true,
+            taskId: fullTask.id,
+        };
+
+        if (newName.trim().toUpperCase() !== fullTask.name.trim().toUpperCase()) {
+            await updateTaskName(fullTask.id, newName);
+
+            result.oldName = fullTask.name;
+            result.newName = newName;
+        } else {
+            result.nameSkipped = true;
+            result.nameReason = "Task name already formatted";
         }
 
-        await updateTaskName(task.id, newName);
+        if (shouldUpdateDueDate(fullTask)) {
+            const dueDate = calculateDueDateByPriority(fullTask);
 
-        return res.status(200).json({
-            ok: true,
-            taskId: task.id,
-            oldName: task.name,
-            newName,
-        });
+            if (dueDate) {
+                await updateTaskDueDate(fullTask.id, dueDate);
+
+                result.dueDateUpdated = true;
+                result.dueDate = dueDate;
+            }
+        } else {
+            result.dueDateSkipped = true;
+            result.dueDateReason = fullTask.due_date
+                ? "Task already has due date"
+                : "No supported priority";
+        }
+
+        return res.status(200).json(result);
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Unknown error";
 
